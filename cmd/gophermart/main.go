@@ -3,8 +3,12 @@ package main
 import (
 	"context"
 	"github.com/go-chi/chi/v5"
+	"github.com/heavydash/my-cumulative_loyalty_sys/internal/auth"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/config"
+	"github.com/heavydash/my-cumulative_loyalty_sys/internal/handler"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/server"
+	"github.com/heavydash/my-cumulative_loyalty_sys/internal/storage"
+	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"net/http"
 	"os/signal"
@@ -13,6 +17,8 @@ import (
 )
 
 func main() {
+	_ = godotenv.Load()
+
 	cfg := config.Load()
 	logger := server.NewLogger("info")
 
@@ -23,6 +29,19 @@ func main() {
 	)
 
 	r := chi.NewRouter()
+
+	userStorage := storage.NewUserStorage()
+	signingKey := []byte(cfg.JWTKey)
+
+	UserHandler := handler.NewUserHandler(userStorage, signingKey)
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Auth([]byte(cfg.JWTKey)))
+		r.Get("/api/user/balance", handler.GetBalance)
+	})
+
+	r.Post("/api/user/register", UserHandler.Register)
+	r.Post("/api/user/login", UserHandler.Login)
 
 	srv := &http.Server{
 		Addr:    cfg.RunAddr,

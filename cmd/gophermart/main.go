@@ -4,20 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"github.com/go-chi/chi/v5"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
+	chi_mw "github.com/go-chi/chi/v5/middleware"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/auth"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/config"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/handler"
+	my_mw "github.com/heavydash/my-cumulative_loyalty_sys/internal/middleware"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/server"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/storage"
 	"github.com/joho/godotenv"
+	"github.com/pressly/goose/v3"
 	"go.uber.org/zap"
 	"net/http"
-	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -46,37 +46,45 @@ func main() {
 	defer db.Close()
 
 	// Миграции
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
-	if err != nil {
-		logger.Fatal("Migrate driver", zap.Error(err))
+	logger.Info("running migrations)")
+	if err := goose.SetDialect("postgres"); err != nil {
+		logger.Fatal("goose set dialect error", zap.Error(err))
 	}
-	dir, err := os.Getwd()
-	if err != nil {
-		logger.Fatal("Get working dir", zap.Error(err))
+	if err := goose.Up(db, "migrations"); err != nil {
+		logger.Fatal("Goose up", zap.Error(err))
 	}
-	migPath := filepath.Join(dir, "migrations")
-	m, err := migrate.NewWithDatabaseInstance("file://"+migPath, "postgres", driver)
-	if err != nil {
-		logger.Fatal("Migrate init", zap.Error(err))
-	}
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		logger.Fatal("Migrate up", zap.Error(err))
-	}
+	logger.Info("migrations done")
 
 	r := chi.NewRouter()
 
+	// Для трейсинга
+	r.Use(chi_mw.RequestID)
+
+	r.Use(my_mw.AccessLog(logger))
+
 	userStorage := storage.NewUserStorage(db)
+	orderStorage := storage.NewOrderStorage(db)
 	signingKey := []byte(cfg.JWTKey)
 
-	UserHandler := handler.NewUserHandler(userStorage, signingKey)
+	UserHandler := handler.NewUserHandler(userStorage, signingKey, logger)
+	OrderHandler := handler.NewOrderHandler(orderStorage, logger)
+	BalanceHandler := handler.NewBalanceHandler(logger)
+
+	r.Group(func(r chi.Router) {
+		r.Post("/api/user/register", UserHandler.Register)
+		r.Post("/api/user/login", UserHandler.Login)
+	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Auth([]byte(cfg.JWTKey)))
-		r.Get("/api/user/balance", handler.GetBalance)
+		r.Get("/api/user/balance", BalanceHandler.GetBalance)
 	})
 
-	r.Post("/api/user/register", UserHandler.Register)
-	r.Post("/api/user/login", UserHandler.Login)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Auth([]byte(cfg.JWTKey)))
+		r.Post("/api/user/orders", OrderHandler.AddOrder)
+		r.Get("/api/user/orders", OrderHandler.GetOrders)
+	})
 
 	srv := &http.Server{
 		Addr:    cfg.RunAddr,

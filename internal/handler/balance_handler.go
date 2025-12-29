@@ -3,17 +3,26 @@ package handler
 import (
 	"encoding/json"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/auth"
-	"github.com/mailru/easyjson"
+	"go.uber.org/zap"
 	"net/http"
 )
 
-//easyjson:json
+type BalanceHandler struct {
+	logger *zap.SugaredLogger
+}
+
 type BalanceResponse struct {
 	Current   float64 `json:"current"`
 	Withdrawn float64 `json:"withdrawn"`
 }
 
-func GetBalance(w http.ResponseWriter, r *http.Request) {
+func NewBalanceHandler(logger *zap.SugaredLogger) *BalanceHandler {
+	return &BalanceHandler{
+		logger: logger,
+	}
+}
+
+func (b *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -30,14 +39,11 @@ func GetBalance(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	started, written, err := easyjson.MarshalToHTTPResponseWriter(&resp, w)
+	data, err := json.Marshal(resp)
 	if err != nil {
-		if err := json.NewEncoder(w).Encode(&resp); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
+		b.logger.Error("Marshal failed", zap.Error(err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
-	_ = started
-	_ = written
-
+	w.Write(data)
 }

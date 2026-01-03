@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,12 @@ type OrderHandler struct {
 }
 
 func NewOrderHandler(order_storage *storage.OrderStorage, logger *zap.SugaredLogger) *OrderHandler {
+	if logger == nil {
+		panic("nil logger")
+	}
+	if order_storage == nil {
+		panic("nil order_storage")
+	}
 	return &OrderHandler{
 		order_storage: order_storage,
 		logger:        logger,
@@ -39,24 +46,33 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	// Конвертация
-	number := string(body)
+	// Конвертация и уборка пробелов
+	number := strings.TrimSpace(string(body))
+	if number == "" {
+		h.logger.Error("order is empty", zap.Error(err))
+		http.Error(w, "Order is empty", http.StatusBadRequest)
+		return
 
+	}
 	// Проверка и добавление заказа для UserId,
 	//Если нет, проверка типа ошибки
 	err = h.order_storage.AddOrder(r.Context(), userID, number)
+
 	if err != nil {
-		if errors.Is(err, errors.New("invalid order number")) {
-			h.logger.Error("Unprocessable Entity", zap.Error(err))
+		// Luhn
+		if errors.Is(err, storage.ErrInvalidOrderNumber) {
+			h.logger.Error("invalid order number(Luhn failed)", zap.Error(err),
+				zap.String("number", number))
 			http.Error(w, "Unprocessable Entity", http.StatusUnprocessableEntity)
 			return
 		}
-		if errors.Is(err, errors.New("order already added by user")) {
+		if errors.Is(err, storage.ErrOrderAlreadyAddedByUser) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if errors.Is(err, errors.New("order added by another user")) {
-			h.logger.Error("Conflict", zap.Error(err))
+		if errors.Is(err, storage.ErrOrderAddedAnotherUser) {
+			h.logger.Error("order added by another user", zap.Error(err),
+				zap.String("number", number))
 			http.Error(w, "Conflict", http.StatusConflict)
 			return
 		}
@@ -64,6 +80,7 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
 	w.WriteHeader(http.StatusAccepted)
 }
 

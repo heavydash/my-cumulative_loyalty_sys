@@ -23,9 +23,13 @@ func Load() *Config {
 	if env := os.Getenv("RUN_ADDRESS"); env != "" && c.RunAddr == "localhost:8080" {
 		c.RunAddr = env
 	}
-	if env := os.Getenv("DATABASE_URI"); env != "" && c.DatabaseURL == "" {
+	if env := os.Getenv("DATABASE_URL"); env != "" && c.DatabaseURL == "" {
 		c.DatabaseURL = env
 	}
+	if c.DatabaseURL == "" {
+		c.DatabaseURL = "postgres://postgres:secret123@localhost:5433/gophermart?sslmode=disable"
+	}
+
 	if env := os.Getenv("ACCRUAL_SYSTEM_ADDRESS"); env != "" && c.AccrualSystemAddr == "http://localhost:8081" {
 		c.AccrualSystemAddr = env
 	}

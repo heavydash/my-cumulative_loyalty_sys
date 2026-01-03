@@ -45,6 +45,13 @@ func main() {
 	}
 	defer db.Close()
 
+	var currentDB string
+	err = db.QueryRow("SELECT current_database()").Scan(&currentDB)
+	if err != nil {
+		logger.Fatal("failed to get current database", zap.Error(err))
+	}
+	logger.Infow("Connected to database", "name", currentDB)
+
 	// Миграции
 	logger.Info("running migrations)")
 	if err := goose.SetDialect("postgres"); err != nil {
@@ -57,13 +64,17 @@ func main() {
 
 	r := chi.NewRouter()
 
+	ErrorHandler := my_mw.NewErrorHandler(logger)
+
 	// Для трейсинга
 	r.Use(chi_mw.RequestID)
 
+	r.Use(ErrorHandler.Handle)            // паники
+	r.Use(my_mw.WithErrorLogging(logger)) // логирование 400/500
 	r.Use(my_mw.AccessLog(logger))
 
 	userStorage := storage.NewUserStorage(db)
-	orderStorage := storage.NewOrderStorage(db)
+	orderStorage := storage.NewOrderStorage(db, logger)
 	signingKey := []byte(cfg.JWTKey)
 
 	UserHandler := handler.NewUserHandler(userStorage, signingKey, logger)

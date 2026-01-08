@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/heavydash/my-cumulative_loyalty_sys/internal/accrual"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/auth"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/storage"
@@ -16,9 +18,10 @@ import (
 type OrderHandler struct {
 	order_storage *storage.OrderStorage
 	logger        *zap.SugaredLogger
+	client        *accrual.Client
 }
 
-func NewOrderHandler(order_storage *storage.OrderStorage, logger *zap.SugaredLogger) *OrderHandler {
+func NewOrderHandler(order_storage *storage.OrderStorage, logger *zap.SugaredLogger, client *accrual.Client) *OrderHandler {
 	if logger == nil {
 		panic("nil logger")
 	}
@@ -28,18 +31,19 @@ func NewOrderHandler(order_storage *storage.OrderStorage, logger *zap.SugaredLog
 	return &OrderHandler{
 		order_storage: order_storage,
 		logger:        logger,
+		client:        client,
 	}
 }
 
 func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
-	// Проверка аутентификации
+	// Берем пользователя из контекста (middleware аутентификации)
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		h.logger.Error("get user id from context")
 		http.Error(w, "get user id from context", http.StatusUnauthorized)
 		return
 	}
-	// Читаем тело
+	// Читаем тело запроса
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Error("Bad request body", zap.Error(err))
@@ -63,25 +67,45 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, storage.ErrInvalidOrderNumber) {
 			h.logger.Error("invalid order number(Luhn failed)", zap.Error(err),
 				zap.String("number", number))
-			http.Error(w, "Unprocessable Entity", http.StatusUnprocessableEntity)
+			http.Error(w, "Unprocessable Entity", http.StatusUnprocessableEntity) // 422
 			return
 		}
 		if errors.Is(err, storage.ErrOrderAlreadyAddedByUser) {
+			// Идемпотентность, заказ уже загружен этим же юзером
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		if errors.Is(err, storage.ErrOrderAddedAnotherUser) {
 			h.logger.Error("order added by another user", zap.Error(err),
 				zap.String("number", number))
-			http.Error(w, "Conflict", http.StatusConflict)
+			http.Error(w, "Conflict", http.StatusConflict) // 409
 			return
 		}
-		h.logger.Error("Internal server error", zap.Error(err))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		// Неизвестная ошибка
+		h.logger.Error("failed to add order", zap.Error(err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError) // 500
 		return
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusAccepted) // 202
+
+	// Асинхронная регистрация accural в фоне
+	go func(orderNum string, uid int64) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Вызов метода клиента
+		if err := h.client.RegisterOrder(ctx, orderNum); err != nil {
+			h.logger.Warn("Failed to register order in accrual",
+				zap.Error(err),
+				zap.String("number", orderNum),
+				zap.Int64("user_id", uid))
+		} else {
+			h.logger.Info("order registered in accrual",
+				zap.String("number", orderNum),
+				zap.Int64("user_id", uid))
+		}
+	}(number, userID)
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {

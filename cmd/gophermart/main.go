@@ -7,6 +7,7 @@ import (
 	chi_mw "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/heavydash/my-cumulative_loyalty_sys/internal/accrual"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/auth"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/config"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/handler"
@@ -17,6 +18,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"go.uber.org/zap"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -77,8 +79,18 @@ func main() {
 	orderStorage := storage.NewOrderStorage(db, logger)
 	signingKey := []byte(cfg.JWTKey)
 
+	// Accrual client и worker
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
+	accrualClient := accrual.NewClient(cfg.AccrualSystemAddr, logger)
+	accrualWorker := accrual.NewAccrualWorker(accrualClient, orderStorage, logger)
+
+	// Запуск в фоне
+	go accrualWorker.Run(workerCtx)
+
 	UserHandler := handler.NewUserHandler(userStorage, signingKey, logger)
-	OrderHandler := handler.NewOrderHandler(orderStorage, logger)
+	OrderHandler := handler.NewOrderHandler(orderStorage, logger, accrualClient)
 	BalanceHandler := handler.NewBalanceHandler(logger)
 
 	r.Group(func(r chi.Router) {
@@ -103,8 +115,8 @@ func main() {
 	}
 
 	// Gracefull shutdown
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -112,11 +124,19 @@ func main() {
 		}
 	}()
 
-	<-ctx.Done()
-	logger.Info("Shutting down server...")
+	logger.Info("server started", "addr", cfg.RunAddr)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	<-shutdown
+	logger.Info("shutting down signal received...")
+
+	// Останавливаем worker
+	workerCancel()
+	logger.Info("worker stopped")
+
+	// Shutdown HTTP
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(),
+		10*time.Second)
+	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("Server shutdown error", zap.Error(err))

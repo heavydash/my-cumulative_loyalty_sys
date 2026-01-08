@@ -26,3 +26,5 @@ vendor/
 .env
 *.env
 
+cookies.txt
+*.txt

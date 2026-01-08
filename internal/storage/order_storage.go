@@ -3,11 +3,13 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/util"
 	_ "github.com/heavydash/my-cumulative_loyalty_sys/internal/util"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"strings"
 )
 
 var (
@@ -86,4 +88,65 @@ func (s *OrderStorage) GetOrders(ctx context.Context, userID int64) ([]model.Ord
 		orders = append(orders, order)
 	}
 	return orders, nil
+}
+
+func (s *OrderStorage) GetPendingOrders(ctx context.Context) ([]model.Order, error) {
+	s.logger.Info("fetching pending orders for accrual processing")
+
+	query := strings.TrimSpace(`
+		SELECT id, number, status, accrual, uploaded_at
+		FROM orders
+		WHERE status IN ('NEW', 'PROCESSING')
+		ORDER BY uploaded_at ASC
+		LIMIT 50
+	`)
+
+	rows, err := s.db.QueryContext(ctx, query)
+
+	if err != nil {
+		s.logger.Error("get pending orders failed", zap.Error(err))
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []model.Order // слайс всех заказов
+	for rows.Next() {        // цикл по всем строкам из SELECT
+		var o model.Order // одна модель заказов, новая на каждой итерации
+		if err := rows.Scan(&o.ID, &o.Number, &o.Status, &o.Accrual,
+			&o.UploadedAt); err != nil { // заполняем модель о, данными из текущей строки
+			s.logger.Error("get pending orders failed", zap.Error(err))
+			return nil, err
+		}
+		orders = append(orders, o) // добавляем о в общий слайс orders
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("rows iteration error", zap.Error(err))
+		return nil, err
+	}
+
+	s.logger.Infow("fetched pending orders", "count", len(orders))
+	return orders, nil
+}
+
+func (s *OrderStorage) UpdateOrderStatus(ctx context.Context, number, status string, accrual float64) error {
+	s.logger.Infow("updating order status", "number", number, "status", status,
+		"accrual", accrual)
+
+	result, err := s.db.ExecContext(ctx, `
+	UPDATE orders
+	SET status = $1, accrual = $2
+	WHERE number = $3`, status, accrual, number)
+	if err != nil {
+		s.logger.Error("update order status failed", zap.Error(err), "number", number)
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		s.logger.Warn("no order found for update", "number", number)
+		return fmt.Errorf("order %s not found", number)
+	}
+
+	return nil
 }

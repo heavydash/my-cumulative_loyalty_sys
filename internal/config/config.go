@@ -23,8 +23,11 @@ func Load() *Config {
 	if envRun := os.Getenv("RUN_ADDRESS"); envRun != "" {
 		c.RunAddr = envRun
 	}
-	if envDB := os.Getenv("DATABASE_URL"); envDB != "" {
+	if envDB := os.Getenv("DATABASE_URI"); envDB != "" {
 		c.DatabaseURI = envDB
+	}
+	if c.DatabaseURI == "" {
+		c.DatabaseURI = "postgres://postgres:postgres@postgres:5432/praktikum?sslmode=disable"
 	}
 
 	if envAccrual := os.Getenv("ACCRUAL_SYSTEM_ADDRESS"); envAccrual != "" {

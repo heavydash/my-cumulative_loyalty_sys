@@ -32,16 +32,16 @@ func main() {
 
 	logger.Infow("Starting Gophermart",
 		"run_adress", cfg.RunAddr,
-		"database_url", cfg.DatabaseURL,
+		"database_url", cfg.DatabaseURI,
 		"accrual_address", cfg.AccrualSystemAddr,
 	)
 
-	if cfg.DatabaseURL == "" {
+	if cfg.DatabaseURI == "" {
 		logger.Fatal("Database URL is empty")
 	}
 
 	// БД
-	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	db, err := sql.Open("postgres", cfg.DatabaseURI)
 	if err != nil {
 		logger.Fatal("db open error", zap.Error(err))
 	}

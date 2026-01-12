@@ -142,3 +142,13 @@ func (s *OrderStorage) UpdateOrderStatus(ctx context.Context, number, status str
 
 	return nil
 }
+
+func (s *OrderStorage) AddAccrualToUserBalance(ctx context.Context, userID int, amount float64) error {
+	_, err := s.db.ExecContext(ctx, `
+	UPDATE users SET current = current + $1 WHERE id = $2`,
+		amount, userID)
+	if err != nil {
+		return fmt.Errorf("add accrual to user balance failed: %w", err)
+	}
+	return nil
+}

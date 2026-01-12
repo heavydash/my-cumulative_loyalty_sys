@@ -80,6 +80,17 @@ func (w *AccrualWorker) processPendingOrders(ctx context.Context) {
 		} else {
 			w.logger.Infow("oreder updated", "number", o.Number, "status", resp.Status,
 				"accrual", resp.Accrual)
+
+			// Начисление баллов пользователю
+			if resp.Status == "PROCESSED" && resp.Accrual > 0 {
+				if err := w.storage.AddAccrualToUserBalance(ctx, int(o.UserID), resp.Accrual); err != nil {
+					w.logger.Errorw("failed to add accrual to user balance",
+						zap.Error(err), "user_id", o.UserID, "amount", resp.Accrual, "order", o.Number)
+				} else {
+					w.logger.Infow("accrual added to user balance",
+						"user_id", o.UserID, "amount", resp.Accrual, "order", o.Number)
+				}
+			}
 		}
 	}
 }

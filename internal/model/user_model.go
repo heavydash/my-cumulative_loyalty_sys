@@ -8,8 +8,3 @@ type User struct {
 	PasswordHash string    `db:"password_hash"`
 	CreatedAt    time.Time `db:"created_at"`
 }
-
-type creds struct {
-	Login    string `json:"login"`
-	Password string `json:"password"`
-}

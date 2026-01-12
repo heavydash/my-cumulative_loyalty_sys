@@ -21,46 +21,46 @@ func NewBalanceStorage(db *sql.DB, logger *zap.SugaredLogger) *BalanceStorage {
 }
 
 func (b *BalanceStorage) GetBalance(ctx context.Context, userID int64) (current, withdrawn float64, err error) {
-	// Начислено
-	var accrued float64
-	err = b.db.QueryRowContext(ctx,
-		`
-        SELECT COALESCE(SUM(accrual), 0)
-        FROM orders
-        WHERE user_id = $1 AND status = $2
-    `, userID, model.OrderStatusProcessed,
-	).Scan(&accrued)
+	// Читаем Current иWithdrawn из строки пользователя
+	err = b.db.QueryRowContext(ctx, `
+		SELECT current_balance, withdrawn
+		FROM users
+		WHERE id = $1`, userID).Scan(&current, &withdrawn)
+
+	if err == sql.ErrNoRows {
+		return 0, 0, ErrUserNotFound
+	}
+
+	// Любая другая ошибка БД
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to calculate accrued %w", err)
+		b.logger.Errorw("fail to get balance", "user_id", userID, "error", err)
 	}
 
-	// Списано
-	var withdrawnFloat float64
-	err = b.db.QueryRowContext(ctx,
-		`
-        SELECT COALESCE(SUM(sum), 0)
-        FROM withdrawals
-        WHERE user_id = $1
-    `,
-		userID,
-	).Scan(&withdrawnFloat)
+	b.logger.Infow("balance retrieved from users table",
+		"user_id", userID,
+		"current", current,
+		"withdrawn", withdrawn)
+
+	return current, withdrawn, nil
+}
+
+func (b *BalanceStorage) AddAccrualToUserBalance(ctx context.Context, user_id int64, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+
+	_, err := b.db.ExecContext(ctx, `
+		UPDATE users 
+		SET current_balance = current_balance + $1
+		WHERE id = $2
+`, amount, user_id)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to calculate withdrawn %w", err)
+		return fmt.Errorf("fail to add accrual to user balance: %w", err)
 	}
+	b.logger.Infow("accrual added to current_balance",
+		"user_id", user_id, "amount", amount)
 
-	current = accrued - withdrawnFloat
-	if current < 0 {
-		current = 0
-	}
-	// лог для поиска проблемы начисления баллов
-	b.logger.Info("balance calculated",
-		zap.Int64("user_id", userID),
-		zap.Float64("accrued", accrued),
-		zap.Float64("withdrawn", withdrawnFloat),
-		zap.Float64("current", current))
-
-	return current, withdrawnFloat, nil
-
+	return nil
 }
 
 func (b *BalanceStorage) Withdraw(ctx context.Context, userID int64, orderNumber string, sum float64) error {
@@ -70,47 +70,69 @@ func (b *BalanceStorage) Withdraw(ctx context.Context, userID int64, orderNumber
 
 	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Check balance
-	current, _, err := b.GetBalance(ctx, userID)
-	var accrued, withdrawn float64
+	// Блокируем строку пользователя и читаем current
+	var currentBalance float64
 	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(accrual), 0), coalesce((SELECT SUM(sum) FROM withdrawals
-		WHERE user_id = $1), 0)
-		FROM orders
-		WHERE user_id = $1 AND status = $2
-`, userID, model.OrderStatusProcessed).Scan(&accrued, &withdrawn)
-	if err != nil {
-		return err
+		SELECT current_balance FROM users WHERE id = $1 FOR UPDATE
+		`, userID).Scan(&currentBalance)
+	if err == sql.ErrNoRows {
+		return ErrUserNotFound
 	}
-	current = accrued - withdrawn
-	if current < sum {
-		return ErrInsufficientFunds
+	if err != nil {
+		return fmt.Errorf("failed to select current_balance for update: %w", err)
 	}
 
-	// Уникальные order_number
+	// Проверка достаточности средств, если мало 402
+	if currentBalance < sum {
+		return ErrInsufficientFunds // 402
+	}
+
+	// Проверка уникальности order_number для списания
 	var exists bool
 	err = tx.QueryRowContext(ctx, `
 	SELECT EXISTS(SELECT 1 FROM withdrawals WHERE order_number = $1`, orderNumber).Scan(&exists)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check order uniqueness: %w", err)
 	}
 	if exists {
-		return ErrOrderAlreadyWithdrawn
+		return ErrOrderAlreadyUsed // 422
 	}
 
-	// Списание
+	// Списание (уменьшаем доступный баланс,увеличиваем архив потраченного)
+	_, err = tx.ExecContext(ctx, `
+		UPDATE users 
+		SET current_balance = current_balance - $1,
+		    withdrawn = withdrawn + $1
+		    WHERE id = $2`, sum, userID)
+	if err != nil {
+		return fmt.Errorf("failed to balance in users: %w", err)
+	}
+	// Записываем операцию в журнал
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO withdrawals (user_id, order_number, sum)
 		VALUES ($1, $2, $3)`, userID, orderNumber, sum)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to insert into withdrawal: %w", err)
 	}
 
-	return tx.Commit()
+	// Коммит
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit tx: %w", err)
+	}
+
+	// Лог
+
+	b.logger.Infow("withdrawal successful",
+		"user_id", userID,
+		"order_number", orderNumber,
+		"sum", sum,
+		"new_current_balance", currentBalance-sum,
+	)
+	return nil
 }
 
 // Список списаний
@@ -119,23 +141,23 @@ func (b *BalanceStorage) GetWithdrawals(ctx context.Context, userID int64) ([]mo
 	SELECT order_number, sum, processed_at
 	FROM withdrawals
 	WHERE user_id = $1
-	ORDER BY processed_at DESC
+	ORDER BY processed_at ASC 
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query withdrawals failed: %w", err)
 	}
 	defer rows.Close()
 
-	var list []model.WithdrawalDTO
+	var withdrawals []model.WithdrawalDTO
 	for rows.Next() {
 		var w model.WithdrawalDTO
 		if err := rows.Scan(&w.Order, &w.Sum, &w.ProcessedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan withdrawals %w", err)
 		}
-		list = append(list, w)
+		withdrawals = append(withdrawals, w)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows %w", err)
 	}
-	return list, nil
+	return withdrawals, nil
 }

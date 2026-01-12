@@ -72,7 +72,7 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, storage.ErrOrderAlreadyAddedByUser) {
 			// Идемпотентность, заказ уже загружен этим же юзером
-			w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK) // 200
 			return
 		}
 		if errors.Is(err, storage.ErrOrderAddedAnotherUser) {
@@ -86,8 +86,6 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError) // 500
 		return
 	}
-
-	w.WriteHeader(http.StatusAccepted) // 202
 
 	// Асинхронная регистрация accural в фоне
 	go func(orderNum string, uid int64) {
@@ -106,6 +104,8 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 				zap.Int64("user_id", uid))
 		}
 	}(number, userID)
+
+	w.WriteHeader(http.StatusAccepted) //202
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {

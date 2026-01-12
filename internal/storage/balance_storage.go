@@ -52,6 +52,13 @@ func (b *BalanceStorage) GetBalance(ctx context.Context, userID int64) (current,
 	if current < 0 {
 		current = 0
 	}
+	// лог для поиска проблемы начисления баллов
+	b.logger.Info("balance calculated",
+		zap.Int64("user_id", userID),
+		zap.Float64("accrued", accrued),
+		zap.Float64("withdrawn", withdrawnFloat),
+		zap.Float64("current", current))
+
 	return current, withdrawnFloat, nil
 
 }

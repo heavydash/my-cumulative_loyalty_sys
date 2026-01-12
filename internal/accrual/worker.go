@@ -8,17 +8,19 @@ import (
 )
 
 type AccrualWorker struct {
-	client  *Client
-	storage *storage.OrderStorage
-	logger  *zap.SugaredLogger
+	client         *Client
+	balanceStorage *storage.BalanceStorage
+	orderStorage   *storage.OrderStorage
+	logger         *zap.SugaredLogger
 }
 
-func NewAccrualWorker(client *Client, storage *storage.OrderStorage,
-	logger *zap.SugaredLogger) *AccrualWorker {
+func NewAccrualWorker(client *Client, balanceStorage *storage.BalanceStorage,
+	orderStorage *storage.OrderStorage, logger *zap.SugaredLogger) *AccrualWorker {
 	return &AccrualWorker{
-		client:  client,
-		storage: storage,
-		logger:  logger,
+		client:         client,
+		balanceStorage: balanceStorage,
+		orderStorage:   orderStorage,
+		logger:         logger,
 	}
 }
 
@@ -41,7 +43,7 @@ func (w *AccrualWorker) Run(ctx context.Context) {
 
 func (w *AccrualWorker) processPendingOrders(ctx context.Context) {
 	// Получаем pending заказы NEW или PROCESSING
-	orders, err := w.storage.GetPendingOrders(ctx)
+	orders, err := w.orderStorage.GetPendingOrders(ctx)
 	if err != nil {
 		w.logger.Errorw("get pending orders failed", "error", err)
 		return
@@ -58,7 +60,7 @@ func (w *AccrualWorker) processPendingOrders(ctx context.Context) {
 	for _, o := range orders {
 		// Если заказ NEW, переводим в PROCESSING
 		if o.Status == "NEW" {
-			if err := w.storage.UpdateOrderStatus(ctx, o.Number, "PROCESSING",
+			if err := w.orderStorage.UpdateOrderStatus(ctx, o.Number, "PROCESSING",
 				o.Accrual); err != nil {
 				w.logger.Error("set PROCESSING status failed", zap.Error(err), "number", o.Number)
 				continue // Не останавливаем обработку других
@@ -72,13 +74,9 @@ func (w *AccrualWorker) processPendingOrders(ctx context.Context) {
 			w.logger.Warnw("accrual request failed, retry later", zap.Error(err), "number", o.Number)
 			continue
 		}
-		if true {
-			w.logger.Infow("test accrual for local testing", "number", o.Number)
-			resp.Accrual = 729.98
-			resp.Status = "PROCESSED"
-		}
+
 		// Обновляем статус и accrual в БД
-		err = w.storage.UpdateOrderStatus(ctx, o.Number, resp.Status, resp.Accrual)
+		err = w.orderStorage.UpdateOrderStatus(ctx, o.Number, resp.Status, resp.Accrual)
 		if err != nil {
 			w.logger.Errorw("update status failed", zap.Error(err), "number", o.Number)
 		} else {
@@ -87,7 +85,7 @@ func (w *AccrualWorker) processPendingOrders(ctx context.Context) {
 
 			// Начисление баллов пользователю
 			if resp.Status == "PROCESSED" && resp.Accrual > 0 {
-				if err := w.storage.AddAccrualToUserBalance(ctx, int(o.UserID), resp.Accrual); err != nil {
+				if err := w.balanceStorage.AddAccrualToUserBalance(ctx, o.UserID, resp.Accrual); err != nil {
 					w.logger.Errorw("failed to add accrual to user balance",
 						zap.Error(err), "user_id", o.UserID, "amount", resp.Accrual, "order", o.Number)
 				} else {

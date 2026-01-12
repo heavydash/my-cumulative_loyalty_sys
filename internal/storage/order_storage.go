@@ -86,7 +86,7 @@ func (s *OrderStorage) GetPendingOrders(ctx context.Context) ([]model.Order, err
 	s.logger.Info("fetching pending orders for accrual processing")
 
 	query := strings.TrimSpace(`
-		SELECT id, number, status, accrual, uploaded_at
+		SELECT user_id, number, status, accrual, uploaded_at
 		FROM orders
 		WHERE status IN ('NEW', 'PROCESSING')
 		ORDER BY uploaded_at ASC
@@ -104,12 +104,13 @@ func (s *OrderStorage) GetPendingOrders(ctx context.Context) ([]model.Order, err
 	var orders []model.Order // слайс всех заказов
 	for rows.Next() {        // цикл по всем строкам из SELECT
 		var o model.Order // одна модель заказов, новая на каждой итерации
-		if err := rows.Scan(&o.ID, &o.Number, &o.Status, &o.Accrual,
+		if err := rows.Scan(&o.UserID, &o.Number, &o.Status, &o.Accrual,
 			&o.UploadedAt); err != nil { // заполняем модель о, данными из текущей строки
 			s.logger.Error("get pending orders failed", zap.Error(err))
 			return nil, err
 		}
 		orders = append(orders, o) // добавляем о в общий слайс orders
+		s.logger.Infow("pending order", "number", o.Number, "user_id", o.UserID)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -140,15 +141,5 @@ func (s *OrderStorage) UpdateOrderStatus(ctx context.Context, number, status str
 		return fmt.Errorf("order %s not found", number)
 	}
 
-	return nil
-}
-
-func (s *OrderStorage) AddAccrualToUserBalance(ctx context.Context, userID int, amount float64) error {
-	_, err := s.db.ExecContext(ctx, `
-	UPDATE users SET current = current + $1 WHERE id = $2`,
-		amount, userID)
-	if err != nil {
-		return fmt.Errorf("add accrual to user balance failed: %w", err)
-	}
 	return nil
 }

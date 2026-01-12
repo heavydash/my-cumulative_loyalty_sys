@@ -85,7 +85,7 @@ func main() {
 	defer workerCancel()
 
 	accrualClient := accrual.NewClient(cfg.AccrualSystemAddr, logger)
-	accrualWorker := accrual.NewAccrualWorker(accrualClient, orderStorage, logger)
+	accrualWorker := accrual.NewAccrualWorker(accrualClient, balanceStorage, orderStorage, logger)
 
 	// Запуск в фоне
 	go accrualWorker.Run(workerCtx)

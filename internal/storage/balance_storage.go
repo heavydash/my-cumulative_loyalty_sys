@@ -44,7 +44,7 @@ func (b *BalanceStorage) GetBalance(ctx context.Context, userID int64) (current,
 	return current, withdrawn, nil
 }
 
-func (b *BalanceStorage) AddAccrualToUserBalance(ctx context.Context, user_id int64, amount float64) error {
+func (b *BalanceStorage) AddAccrualToUserBalance(ctx context.Context, userID int64, amount float64) error {
 	if amount <= 0 {
 		return nil
 	}
@@ -53,12 +53,12 @@ func (b *BalanceStorage) AddAccrualToUserBalance(ctx context.Context, user_id in
 		UPDATE users 
 		SET current_balance = current_balance + $1
 		WHERE id = $2
-`, amount, user_id)
+`, amount, userID)
 	if err != nil {
 		return fmt.Errorf("fail to add accrual to user balance: %w", err)
 	}
 	b.logger.Infow("accrual added to current_balance",
-		"user_id", user_id, "amount", amount)
+		"user_id", userID, "amount", amount)
 
 	return nil
 }
@@ -94,7 +94,7 @@ func (b *BalanceStorage) Withdraw(ctx context.Context, userID int64, orderNumber
 	// Проверка уникальности order_number для списания
 	var exists bool
 	err = tx.QueryRowContext(ctx, `
-	SELECT EXISTS(SELECT 1 FROM withdrawals WHERE order_number = $1`, orderNumber).Scan(&exists)
+	SELECT EXISTS(SELECT 1 FROM withdrawals WHERE order_number = $1)`, orderNumber).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("failed to check order uniqueness: %w", err)
 	}

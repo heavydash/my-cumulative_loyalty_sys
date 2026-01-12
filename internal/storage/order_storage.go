@@ -7,16 +7,8 @@ import (
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/util"
 	_ "github.com/heavydash/my-cumulative_loyalty_sys/internal/util"
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"strings"
-)
-
-var (
-	ErrInvalidOrderNumber      = errors.New("invalid order number")
-	ErrOrderAlreadyAddedByUser = errors.New("order already added by user")
-	ErrOrderAddedAnotherUser   = errors.New("order added by another user")
-	ErrOrderIsEmpty            = errors.New("order is empty")
 )
 
 type OrderStorage struct {

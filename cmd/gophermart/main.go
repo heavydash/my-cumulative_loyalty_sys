@@ -77,6 +77,7 @@ func main() {
 
 	userStorage := storage.NewUserStorage(db)
 	orderStorage := storage.NewOrderStorage(db, logger)
+	balanceStorage := storage.NewBalanceStorage(db, logger)
 	signingKey := []byte(cfg.JWTKey)
 
 	// Accrual client и worker
@@ -91,7 +92,7 @@ func main() {
 
 	UserHandler := handler.NewUserHandler(userStorage, signingKey, logger)
 	OrderHandler := handler.NewOrderHandler(orderStorage, logger, accrualClient)
-	BalanceHandler := handler.NewBalanceHandler(logger)
+	BalanceHandler := handler.NewBalanceHandler(balanceStorage, logger)
 
 	r.Group(func(r chi.Router) {
 		r.Post("/api/user/register", UserHandler.Register)
@@ -99,8 +100,10 @@ func main() {
 	})
 
 	r.Group(func(r chi.Router) {
-		r.Use(auth.Auth([]byte(cfg.JWTKey)))
+		r.Use(auth.Auth(signingKey))
 		r.Get("/api/user/balance", BalanceHandler.GetBalance)
+		r.Post("/api/user/balance/withdraw", BalanceHandler.Withdraw)
+		r.Get("/api/user/withdrawals", BalanceHandler.GetWithdrawals)
 	})
 
 	r.Group(func(r chi.Router) {

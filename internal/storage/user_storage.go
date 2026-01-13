@@ -9,12 +9,12 @@ import (
 )
 
 type UserStorage struct {
-	mu sync.RWMutex
+	mu *sync.RWMutex
 	db *sql.DB
 }
 
 func NewUserStorage(db *sql.DB) *UserStorage {
-	return &UserStorage{db: db}
+	return &UserStorage{db: db, mu: &sync.RWMutex{}}
 }
 
 func (s *UserStorage) Create(ctx context.Context, login, password string) (*model.User, error) {

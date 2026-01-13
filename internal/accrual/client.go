@@ -12,16 +12,16 @@ import (
 )
 
 type Client struct {
-	baseUrl string
+	baseURL string
 	logger  *zap.SugaredLogger
 	client  *http.Client
 }
 
-func NewClient(baseUrl string, logger *zap.SugaredLogger) *Client {
+func NewClient(baseURL string, logger *zap.SugaredLogger) *Client {
 	// Trim trailing slash без двойного //
-	baseUrl = strings.TrimRight(baseUrl, "/")
+	baseURL = strings.TrimRight(baseURL, "/")
 	return &Client{
-		baseUrl: baseUrl,
+		baseURL: baseURL,
 		logger:  logger,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -40,7 +40,7 @@ type AccrualResponse struct {
 // GetAccrual - дергает accrual по номеру заказа
 func (c *Client) GetAccrual(ctx context.Context, orderNumber string) (*AccrualResponse, error) {
 	// Поиск по baseURL, orderNumber
-	url := fmt.Sprintf("%s/api/orders/%s", c.baseUrl, orderNumber)
+	url := fmt.Sprintf("%s/api/orders/%s", c.baseURL, orderNumber)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *Client) GetAccrual(ctx context.Context, orderNumber string) (*AccrualRe
 
 func (c *Client) RegisterOrder(ctx context.Context, orderNumber string) error {
 
-	url := c.baseUrl + "/api/orders"
+	url := c.baseURL + "/api/orders"
 
 	payload := struct {
 		Order string `json:"order"`
@@ -122,7 +122,7 @@ func (c *Client) RegisterOrder(ctx context.Context, orderNumber string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("accrual register failed", resp.StatusCode)
+		return fmt.Errorf("accrual register failed: %d", resp.StatusCode)
 	}
 
 	c.logger.Info("order registered in accrual", "number", orderNumber)

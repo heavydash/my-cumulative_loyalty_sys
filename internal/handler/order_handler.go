@@ -16,22 +16,22 @@ import (
 )
 
 type OrderHandler struct {
-	order_storage *storage.OrderStorage
-	logger        *zap.SugaredLogger
-	client        *accrual.Client
+	orderStorage *storage.OrderStorage
+	logger       *zap.SugaredLogger
+	client       *accrual.Client
 }
 
-func NewOrderHandler(order_storage *storage.OrderStorage, logger *zap.SugaredLogger, client *accrual.Client) *OrderHandler {
+func NewOrderHandler(orderStorage *storage.OrderStorage, logger *zap.SugaredLogger, client *accrual.Client) *OrderHandler {
 	if logger == nil {
 		panic("nil logger")
 	}
-	if order_storage == nil {
+	if orderStorage == nil {
 		panic("nil order_storage")
 	}
 	return &OrderHandler{
-		order_storage: order_storage,
-		logger:        logger,
-		client:        client,
+		orderStorage: orderStorage,
+		logger:       logger,
+		client:       client,
 	}
 }
 
@@ -60,7 +60,7 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	// Проверка и добавление заказа для UserId,
 	//Если нет, проверка типа ошибки
-	err = h.order_storage.AddOrder(r.Context(), userID, number)
+	err = h.orderStorage.AddOrder(r.Context(), userID, number)
 
 	if err != nil {
 		// Luhn
@@ -117,7 +117,7 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Проверка заказов по UserID
-	orders, err := h.order_storage.GetOrders(r.Context(), userID)
+	orders, err := h.orderStorage.GetOrders(r.Context(), userID)
 	if err != nil {
 		h.logger.Error("GetOrders failed", zap.Error(err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

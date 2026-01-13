@@ -10,9 +10,9 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userId int64, signingKey []byte) (string, error) {
+func GenerateToken(userID int64, signingKey []byte) (string, error) {
 	claims := Claims{
-		UserID: userId,
+		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(72 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

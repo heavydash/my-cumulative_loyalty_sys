@@ -15,14 +15,14 @@ type creds struct {
 }
 
 type UserHandler struct {
-	userStorage storage.UserStorage
+	userStorage storage.UserRepository
 	signingKey  []byte
 	logger      *zap.SugaredLogger
 }
 
-func NewUserHandler(userStorage *storage.UserStorage, signingKey []byte, logger *zap.SugaredLogger) *UserHandler {
+func NewUserHandler(userStorage storage.UserRepository, signingKey []byte, logger *zap.SugaredLogger) *UserHandler {
 	return &UserHandler{
-		userStorage: *userStorage,
+		userStorage: userStorage,
 		signingKey:  signingKey,
 		logger:      logger,
 	}

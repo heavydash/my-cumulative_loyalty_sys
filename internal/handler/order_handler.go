@@ -16,12 +16,12 @@ import (
 )
 
 type OrderHandler struct {
-	orderStorage *storage.OrderStorage
+	orderStorage storage.OrderRepository
 	logger       *zap.SugaredLogger
 	client       *accrual.Client
 }
 
-func NewOrderHandler(orderStorage *storage.OrderStorage, logger *zap.SugaredLogger, client *accrual.Client) *OrderHandler {
+func NewOrderHandler(orderStorage storage.OrderRepository, logger *zap.SugaredLogger, client *accrual.Client) *OrderHandler {
 	if logger == nil {
 		panic("nil logger")
 	}

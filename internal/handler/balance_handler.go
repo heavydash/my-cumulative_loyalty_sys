@@ -13,11 +13,11 @@ import (
 )
 
 type BalanceHandler struct {
-	storage *storage.BalanceStorage
+	storage storage.BalanceRepository
 	logger  *zap.SugaredLogger
 }
 
-func NewBalanceHandler(storage *storage.BalanceStorage, logger *zap.SugaredLogger) *BalanceHandler {
+func NewBalanceHandler(storage storage.BalanceRepository, logger *zap.SugaredLogger) *BalanceHandler {
 	return &BalanceHandler{
 		storage: storage,
 		logger:  logger,

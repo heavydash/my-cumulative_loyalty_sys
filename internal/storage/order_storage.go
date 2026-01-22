@@ -11,12 +11,52 @@ import (
 )
 
 type OrderStorage struct {
+	repo   *GenericRepository[model.Order]
 	db     *sql.DB
 	logger *zap.SugaredLogger
 }
 
 func NewOrderStorage(db *sql.DB, logger *zap.SugaredLogger) *OrderStorage {
-	return &OrderStorage{db: db, logger: logger}
+	scanCreate := func(row *sql.Row, order *model.Order) error {
+		return row.Scan(&order.ID, &order.Number, &order.Status, &order.Accrual, &order.UploadedAt)
+	}
+	return &OrderStorage{
+		db:     db,
+		logger: logger,
+		repo: NewGenericRepository[model.Order](
+			db, "",
+			"INSERT INTO orders (number, user_id, status, uploaded_at) VALUES ($1, $2, 'NEW', NOW()) RETURNING id, number, status, accrual, uploaded_at",
+			scanCreate,
+			"",
+			"SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at DESC",
+		),
+	}
+}
+
+// GetOrders - общий метод
+func (s *OrderStorage) GetOrders(ctx context.Context, userID int64) ([]model.Order, error) {
+	// Запрос к БД - заказ полтзователя от новых к старым
+	rows, err := s.repo.ListByUserID(ctx, userID)
+	if err != nil {
+		s.logger.Errorw("failed get orders", "userID", userID, "err", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []model.Order
+	for rows.Next() {
+		var order model.Order
+		if err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.UploadedAt); err != nil {
+			s.logger.Errorw("failed to scan order", zap.Error(err))
+			return nil, err
+		}
+		orders = append(orders, order)
+	}
+	if err := rows.Err(); err != nil {
+		s.logger.Errorw("rows iteration error during GetOrders", zap.Error(err))
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+	return orders, nil
 }
 
 func (s *OrderStorage) AddOrder(ctx context.Context, userID int64, number string) error {
@@ -59,29 +99,6 @@ func (s *OrderStorage) AddOrder(ctx context.Context, userID int64, number string
 		return err
 	}
 	return nil // 202
-}
-
-func (s *OrderStorage) GetOrders(ctx context.Context, userID int64) ([]model.Order, error) {
-	// Запрос к БД - заказ полтзователя от новых к старым
-	rows, err := s.db.QueryContext(ctx, "SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at DESC", userID)
-	if err != nil {
-		return nil, fmt.Errorf("query orders failed: %w", err)
-	}
-	defer rows.Close()
-
-	var orders []model.Order
-	for rows.Next() {
-		var order model.Order
-		if err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.UploadedAt); err != nil {
-			return nil, fmt.Errorf("scan order row failed: %w", err)
-		}
-		orders = append(orders, order)
-	}
-	if err := rows.Err(); err != nil {
-		s.logger.Errorw("rows iteration error during GetOrders", zap.Error(err))
-		return nil, fmt.Errorf("rows iteration error: %w", err)
-	}
-	return orders, nil
 }
 
 func (s *OrderStorage) GetPendingOrders(ctx context.Context) ([]model.Order, error) {

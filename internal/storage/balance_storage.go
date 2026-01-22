@@ -9,14 +9,26 @@ import (
 )
 
 type BalanceStorage struct {
+	repo   *GenericRepository[model.WithdrawalDTO]
 	db     *sql.DB
 	logger *zap.SugaredLogger
 }
 
 func NewBalanceStorage(db *sql.DB, logger *zap.SugaredLogger) *BalanceStorage {
+	scanCreate := func(row *sql.Row, dto *model.WithdrawalDTO) error {
+		return row.Scan(&dto.Order, &dto.Sum, &dto.ProcessedAt)
+	}
 	return &BalanceStorage{
 		db:     db,
 		logger: logger,
+		repo: NewGenericRepository[model.WithdrawalDTO](
+			db,
+			"",
+			"INSERT INTO withdrawals (user_id, order_number, sum) VALUES ($1, $2, $3) RETURNING order_number, sum, processed_at",
+			scanCreate,
+			"",
+			"SELECT order_number, sum, processed_at FROM withdrawals WHERE user_id = $1 ORDER BY processed_at ASC",
+		),
 	}
 }
 
@@ -137,12 +149,7 @@ func (b *BalanceStorage) Withdraw(ctx context.Context, userID int64, orderNumber
 
 // Список списаний
 func (b *BalanceStorage) GetWithdrawals(ctx context.Context, userID int64) ([]model.WithdrawalDTO, error) {
-	rows, err := b.db.QueryContext(ctx, `
-	SELECT order_number, sum, processed_at
-	FROM withdrawals
-	WHERE user_id = $1
-	ORDER BY processed_at ASC 
-	`, userID)
+	rows, err := b.repo.ListByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query withdrawals failed: %w", err)
 	}

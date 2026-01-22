@@ -9,12 +9,28 @@ import (
 )
 
 type UserStorage struct {
-	mu *sync.RWMutex
-	db *sql.DB
+	repo *GenericRepository[model.User] // дженерик для Create/GetById
+	mu   *sync.RWMutex
+	db   *sql.DB
 }
 
 func NewUserStorage(db *sql.DB) *UserStorage {
-	return &UserStorage{db: db, mu: &sync.RWMutex{}}
+	scanCreate := func(row *sql.Row, user *model.User) error {
+		return row.Scan(&user.ID, &user.Login, &user.PasswordHash, &user.CreatedAt)
+
+	}
+	return &UserStorage{
+		db: db,
+		mu: &sync.RWMutex{},
+		repo: NewGenericRepository[model.User](
+			db,
+			"SELECT id, login, password_hash, created_at FROM users WHERE id = $1",                                    // GetByID
+			"INSERT INTO users (login, password_hash) VALUES ($1, $2) RETURNING id, login, password_hash, created_at", // Create
+			scanCreate,
+			"UPDATE users SET login = $1, password_hash = $2 WHERE id = $3",
+			"", // Update
+		),
+	}
 }
 
 func (s *UserStorage) Create(ctx context.Context, login, password string) (*model.User, error) {
@@ -23,13 +39,8 @@ func (s *UserStorage) Create(ctx context.Context, login, password string) (*mode
 	if err != nil {
 		return nil, err
 	}
-
-	var user model.User
-	err = s.db.QueryRowContext(ctx, "INSERT INTO users (login, password_hash) VALUES ($1, $2) RETURNING id, login, password_hash, created_at", login, string(hash)).Scan(&user.ID, &user.Login, &user.PasswordHash, &user.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
+	// Вызов дженерика
+	return s.repo.Create(ctx, login, hash)
 }
 
 func (s *UserStorage) GetByLogin(ctx context.Context, login string) (*model.User, error) {
@@ -42,4 +53,13 @@ func (s *UserStorage) GetByLogin(ctx context.Context, login string) (*model.User
 		return nil, err
 	}
 	return user, nil
+}
+
+func (s *UserStorage) GetByID(ctx context.Context, id int64) (*model.User, error) {
+	var user model.User
+	err := s.repo.GetByID(ctx, id, &user)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }

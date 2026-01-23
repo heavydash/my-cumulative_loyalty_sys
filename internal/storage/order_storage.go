@@ -128,6 +128,13 @@ func (s *OrderStorage) GetPendingOrders(ctx context.Context) ([]model.Order, err
 			s.logger.Error("get pending orders failed", zap.Error(err))
 			return nil, err
 		}
+
+		s.logger.Infow("DEBUG: pending order loaded",
+			"number", o.Number,
+			"user_id", o.UserID,
+			"status", o.Status,
+			"accrual", o.Accrual)
+
 		orders = append(orders, o) // добавляем о в общий слайс orders
 		s.logger.Infow("pending order", "number", o.Number, "user_id", o.UserID)
 	}

@@ -3,16 +3,17 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/accrual"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/auth"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/storage"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
-	"io"
-	"net/http"
-	"strings"
-	"time"
 )
 
 type OrderHandler struct {
@@ -60,6 +61,8 @@ func (h *OrderHandler) AddOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	// Проверка и добавление заказа для UserId,
 	//Если нет, проверка типа ошибки
+	//todo оишбки через errorsIs , As проверять по очереди. По какой-то логике сверху вниз. И выдавать статус коды.
+	//
 	err = h.orderStorage.AddOrder(r.Context(), userID, number)
 
 	if err != nil {

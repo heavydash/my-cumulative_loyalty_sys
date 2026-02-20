@@ -3,11 +3,13 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/util"
 	"go.uber.org/zap"
-	"strings"
 )
 
 type OrderStorage struct {
@@ -85,7 +87,7 @@ func (s *OrderStorage) AddOrder(ctx context.Context, userID int64, number string
 		s.logger.Info("same user, return already added")
 		return ErrOrderAddedAnotherUser // 409
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		// Другая ошибка БД
 		s.logger.Info("select failed", zap.Error(err))
 		return err

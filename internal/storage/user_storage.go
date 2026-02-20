@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"golang.org/x/crypto/bcrypt"
 	"sync"
@@ -10,8 +11,9 @@ import (
 
 type UserStorage struct {
 	repo *GenericRepository[model.User] // дженерик для Create/GetById
-	mu   *sync.RWMutex
-	db   *sql.DB
+	//todo и так передается структура в ресивере по указателю. Мьютекс лучше без указателя.
+	mu sync.RWMutex
+	db *sql.DB
 }
 
 func NewUserStorage(db *sql.DB) *UserStorage {
@@ -21,7 +23,7 @@ func NewUserStorage(db *sql.DB) *UserStorage {
 	}
 	return &UserStorage{
 		db: db,
-		mu: &sync.RWMutex{},
+		mu: sync.RWMutex{},
 		repo: NewGenericRepository[model.User](
 			db,
 			"SELECT id, login, password_hash, created_at FROM users WHERE id = $1",                                    // GetByID
@@ -46,7 +48,8 @@ func (s *UserStorage) Create(ctx context.Context, login, password string) (*mode
 func (s *UserStorage) GetByLogin(ctx context.Context, login string) (*model.User, error) {
 	user := &model.User{}
 	err := s.db.QueryRowContext(ctx, "SELECT id, login, password_hash, created_at FROM users WHERE login = $1", login).Scan(&user.ID, &user.Login, &user.PasswordHash, &user.CreatedAt)
-	if err == sql.ErrNoRows {
+	//todo errors.Is, errors.As применять
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	if err != nil {

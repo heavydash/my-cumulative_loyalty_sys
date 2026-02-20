@@ -3,25 +3,27 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+
 	"github.com/heavydash/my-cumulative_loyalty_sys/internal/model"
 	"go.uber.org/zap"
 )
 
 type BalanceStorage struct {
-	repo   *GenericRepository[model.WithdrawalDTO]
+	repo   *GenericRepository[model.Withdrawal]
 	db     *sql.DB
 	logger *zap.SugaredLogger
 }
 
 func NewBalanceStorage(db *sql.DB, logger *zap.SugaredLogger) *BalanceStorage {
-	scanCreate := func(row *sql.Row, dto *model.WithdrawalDTO) error {
+	scanCreate := func(row *sql.Row, dto *model.Withdrawal) error {
 		return row.Scan(&dto.Order, &dto.Sum, &dto.ProcessedAt)
 	}
 	return &BalanceStorage{
 		db:     db,
 		logger: logger,
-		repo: NewGenericRepository[model.WithdrawalDTO](
+		repo: NewGenericRepository[model.Withdrawal](
 			db,
 			"",
 			"INSERT INTO withdrawals (user_id, order_number, sum) VALUES ($1, $2, $3) RETURNING order_number, sum, processed_at",
@@ -87,11 +89,14 @@ func (b *BalanceStorage) Withdraw(ctx context.Context, userID int64, orderNumber
 	defer tx.Rollback()
 
 	// Блокируем строку пользователя и читаем current
+	// todo никогда деньги во float не храним. Всегда int
+	// RUB 1.99 | Йпонская йена 1.999
+	// на собесе будут спрашивать про ISO, округления, делиметры для копеек
 	var currentBalance float64
 	err = tx.QueryRowContext(ctx, `
 		SELECT current_balance FROM users WHERE id = $1 FOR UPDATE
 		`, userID).Scan(&currentBalance)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrUserNotFound
 	}
 	if err != nil {
@@ -148,16 +153,16 @@ func (b *BalanceStorage) Withdraw(ctx context.Context, userID int64, orderNumber
 }
 
 // Список списаний
-func (b *BalanceStorage) GetWithdrawals(ctx context.Context, userID int64) ([]model.WithdrawalDTO, error) {
+func (b *BalanceStorage) GetWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
 	rows, err := b.repo.ListByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query withdrawals failed: %w", err)
 	}
 	defer rows.Close()
 
-	var withdrawals []model.WithdrawalDTO
+	var withdrawals []model.Withdrawal
 	for rows.Next() {
-		var w model.WithdrawalDTO
+		var w model.Withdrawal
 		if err := rows.Scan(&w.Order, &w.Sum, &w.ProcessedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan withdrawals %w", err)
 		}

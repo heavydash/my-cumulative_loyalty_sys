@@ -33,9 +33,9 @@ func (m *mockBalanceRepo) Withdraw(ctx context.Context, userID int64, orderNumbe
 	return args.Error(0)
 }
 
-func (m *mockBalanceRepo) GetWithdrawals(ctx context.Context, userID int64) ([]model.WithdrawalDTO, error) {
+func (m *mockBalanceRepo) GetWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
 	args := m.Called(ctx, userID)
-	return args.Get(0).([]model.WithdrawalDTO), args.Error(1)
+	return args.Get(0).([]model.Withdrawal), args.Error(1)
 }
 
 func TestBalanceHandler_GetBalance(t *testing.T) {
@@ -284,7 +284,7 @@ func TestBalanceHandler_GetWithdrawals(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
 		req = req.WithContext(auth.ContextWithUserID(ctx, int64(42)))
 
-		mockRepo.On("GetWithdrawals", mock.Anything, int64(42)).Return([]model.WithdrawalDTO{}, nil)
+		mockRepo.On("GetWithdrawals", mock.Anything, int64(42)).Return([]model.Withdrawal{}, nil)
 
 		w := httptest.NewRecorder()
 
@@ -303,7 +303,7 @@ func TestBalanceHandler_GetWithdrawals(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
 		req = req.WithContext(auth.ContextWithUserID(ctx, int64(42)))
 
-		rawWithdrawals := []model.WithdrawalDTO{
+		rawWithdrawals := []model.Withdrawal{
 			{Order: "123", Sum: 100.555, ProcessedAt: fixedTime},
 		}
 
@@ -316,7 +316,7 @@ func TestBalanceHandler_GetWithdrawals(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
-		var resp []model.WithdrawalDTO
+		var resp []model.Withdrawal
 		err := json.NewDecoder(w.Body).Decode(&resp)
 		require.NoError(t, err)
 
